@@ -29,7 +29,7 @@ GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
-# --- Fixed Auto-Discovery AI Agent ---
+# --- 100% Auto-Switching Dynamic AI Agent ---
 def analyze_bill_image(image):
     prompt = """
     Analyze this handwritten receipt/summary bill image. The text might be in Bengali or English. Extract:
@@ -41,17 +41,39 @@ def analyze_bill_image(image):
     {"date": "DD/MM/YYYY", "items": "item1, item2", "total_amount": 0.0}
     """
     
-    models_to_try = ['gemini-1.5-flash', 'gemini-2.0-flash', 'models/gemini-1.5-flash']
-    last_error = None
+    # ১. প্রাইমারি মডেলের ক্যাডিডেট লিস্ট (Fallback Priorities)
+    candidate_models = [
+        'gemini-1.5-flash',
+        'gemini-2.0-flash',
+        'gemini-1.5-pro',
+        'models/gemini-1.5-flash',
+        'models/gemini-2.0-flash'
+    ]
     
+    # ২. গুগল API থেকে ডায়নামিকভাবে চালু থাকা সব মডেলের আপডেট লিস্ট নেওয়া
     try:
-        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        flash_models = [m for m in available_models if 'flash' in m.lower()]
-        if flash_models:
-            models_to_try = flash_models + models_to_try
+        available_from_api = []
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                name = m.name.replace('models/', '')
+                available_from_api.append(name)
+                available_from_api.append(m.name)
+        
+        if available_from_api:
+            candidate_models = available_from_api + candidate_models
     except Exception:
         pass
 
+    # ইউনিক মডেল ফিল্টার করা
+    seen = set()
+    models_to_try = []
+    for m in candidate_models:
+        if m not in seen:
+            seen.add(m)
+            models_to_try.append(m)
+
+    # ৩. অটো-সুইচিং লুপ (একটি ফেইল করলে নিশব্দে অটোমেটিক পরের মডেলে চলে যাবে)
+    last_error = None
     for model_name in models_to_try:
         try:
             model = genai.GenerativeModel(model_name)
@@ -68,7 +90,7 @@ def analyze_bill_image(image):
             last_error = e
             continue
             
-    raise Exception(f"Google AI Error: {last_error}")
+    raise Exception(f"Google AI Auto-Switch Error: {last_error}")
 
 # --- Smart Search Function (Fuzzy Matching) ---
 def is_fuzzy_match(query, text, threshold=0.50):
@@ -218,7 +240,7 @@ st.markdown("""
 
 tab1, tab2 = st.tabs(["📝 New Bill Entry", "🔍 Smart Search & Dashboard"])
 
-# --- TAB 1: UPLOAD (With Camera + Upload Toggle) ---
+# --- TAB 1: UPLOAD (Both Main & Supporting Have Gallery & Camera) ---
 with tab1:
     c_req, c_ref = st.columns(2)
     with c_req:
@@ -229,6 +251,7 @@ with tab1:
     st.write("---")
     col_upload1, col_upload2 = st.columns(2)
     
+    # --- Main Bill Input Section ---
     with col_upload1:
         st.info("📄 **মূল সামারি বিল:** যেটি AI রিড করবে।")
         main_source = st.radio("মূল বিল দেওয়ার মাধ্যম বেছে নিন:", ["📁 গ্যালারি / ফাইল (Upload)", "📸 সরাসরি ক্যামেরা (Camera)"], horizontal=True, key="main_src")
@@ -237,11 +260,19 @@ with tab1:
         if main_source == "📁 গ্যালারি / ফাইল (Upload)":
             main_file = st.file_uploader("মূল বিল আপলোড করুন", type=['jpg', 'jpeg', 'png'], key="main_upload")
         else:
-            main_file = st.camera_input("সরাসরি বিলের ছবি তুলুন", key="main_cam")
+            main_file = st.camera_input("সরাসরি মূল বিলের ছবি তুলুন", key="main_cam")
         
+    # --- Supporting Bills Input Section ---
     with col_upload2:
         st.info("📎 **সাপোর্টিং বিলসমূহ:** প্রমাণ হিসেবে যুক্ত থাকবে।")
-        supp_files = st.file_uploader("অন্যান্য বিল আপলোড করুন (একাধিক)", type=['jpg', 'jpeg', 'png'], accept_multiple_files=True, key="supp_upload")
+        supp_source = st.radio("সাপোর্টিং বিল দেওয়ার মাধ্যম বেছে নিন:", ["📁 গ্যালারি / ফাইল (Upload)", "📸 সরাসরি ক্যামেরা (Camera)"], horizontal=True, key="supp_src")
+        
+        supp_files = []
+        supp_cam_file = None
+        if supp_source == "📁 গ্যালারি / ফাইল (Upload)":
+            supp_files = st.file_uploader("অন্যান্য বিল আপলোড করুন (একাধিক)", type=['jpg', 'jpeg', 'png'], accept_multiple_files=True, key="supp_upload")
+        else:
+            supp_cam_file = st.camera_input("সরাসরি সাপোর্টিং বিলের ছবি তুলুন", key="supp_cam")
     
     if main_file:
         main_image = Image.open(main_file)
@@ -280,11 +311,19 @@ with tab1:
                     main_img_path = os.path.join(date_folder_path, f"main_{timestamp}.jpg")
                     main_image.save(main_img_path)
                     
+                    # Saving Supporting Files (Gallery or Camera)
                     supp_paths = []
-                    if supp_files:
-                        for idx, s_file in enumerate(supp_files):
-                            s_img = Image.open(s_file)
-                            s_path = os.path.join(date_folder_path, f"supp_{timestamp}_{idx}.jpg")
+                    if supp_source == "📁 গ্যালারি / ফাইল (Upload)":
+                        if supp_files:
+                            for idx, s_file in enumerate(supp_files):
+                                s_img = Image.open(s_file)
+                                s_path = os.path.join(date_folder_path, f"supp_{timestamp}_{idx}.jpg")
+                                s_img.save(s_path)
+                                supp_paths.append(s_path)
+                    else:
+                        if supp_cam_file:
+                            s_img = Image.open(supp_cam_file)
+                            s_path = os.path.join(date_folder_path, f"supp_{timestamp}_cam.jpg")
                             s_img.save(s_path)
                             supp_paths.append(s_path)
                     
