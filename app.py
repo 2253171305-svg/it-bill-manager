@@ -30,21 +30,77 @@ GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
-# --- Auto CamScanner Filter (Magic Color Scan Effect) ---
-def apply_camscanner_effect(pil_img):
+# --- Auto-Crop Paper & CamScanner Magic Scan Filter ---
+def apply_camscanner_magic_filter(pil_img):
     try:
-        # High contrast and document whitening
-        enhancer_contrast = ImageEnhance.Contrast(pil_img)
-        high_contrast = enhancer_contrast.enhance(1.8)
+        import cv2
         
-        enhancer_brightness = ImageEnhance.Brightness(high_contrast)
-        brightened = enhancer_brightness.enhance(1.15)
-        
-        # Edge sharpening
-        sharpened = brightened.filter(ImageFilter.SHARPEN)
-        return sharpened
+        # Convert PIL Image to OpenCV BGR
+        img = cv2.cvtColor(np.array(pil_img.convert('RGB')), cv2.COLOR_RGB2BGR)
+        h, w = img.shape[:2]
+        orig = img.copy()
+
+        # 1. Paper Auto-Detection & Background Crop
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        blur = cv2.GaussianBlur(gray, (5, 5), 0)
+        edged = cv2.Canny(blur, 30, 150)
+
+        contours, _ = cv2.findContours(edged.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours = sorted(contours, key=cv2.contourArea, reverse=True)[:5]
+
+        doc_cnt = None
+        for c in contours:
+            peri = cv2.arcLength(c, True)
+            approx = cv2.approxPolyDP(c, 0.02 * peri, True)
+            if len(approx) == 4 and cv2.contourArea(c) > (h * w * 0.10):
+                doc_cnt = approx
+                break
+
+        if doc_cnt is not None:
+            pts = doc_cnt.reshape(4, 2)
+            rect = np.zeros((4, 2), dtype="float32")
+            s = pts.sum(axis=1)
+            rect[0] = pts[np.argmin(s)]
+            rect[2] = pts[np.argmax(s)]
+            diff = np.diff(pts, axis=1)
+            rect[1] = pts[np.argmin(diff)]
+            rect[3] = pts[np.argmax(diff)]
+
+            (tl, tr, br, bl) = rect
+            widthA = np.sqrt(((br[0] - bl[0]) ** 2) + ((br[1] - bl[1]) ** 2))
+            widthB = np.sqrt(((tr[0] - tl[0]) ** 2) + ((tr[1] - tl[1]) ** 2))
+            maxWidth = max(int(widthA), int(widthB))
+
+            heightA = np.sqrt(((tr[0] - br[0]) ** 2) + ((tr[1] - br[1]) ** 2))
+            heightB = np.sqrt(((tl[0] - bl[0]) ** 2) + ((tl[1] - bl[1]) ** 2))
+            maxHeight = max(int(heightA), int(heightB))
+
+            dst = np.array([
+                [0, 0],
+                [maxWidth - 1, 0],
+                [maxWidth - 1, maxHeight - 1],
+                [0, maxHeight - 1]], dtype="float32")
+
+            M = cv2.getPerspectiveTransform(rect, dst)
+            scanned = cv2.warpPerspective(orig, M, (maxWidth, maxHeight))
+        else:
+            scanned = orig
+
+        # 2. Magic Color Filter (Pure White Background & Sharp Black Text)
+        gray_scanned = cv2.cvtColor(scanned, cv2.COLOR_BGR2GRAY)
+        dilated = cv2.dilate(gray_scanned, np.ones((7, 7), np.uint8))
+        bg_img = cv2.medianBlur(dilated, 21)
+        diff_img = 255 - cv2.absdiff(gray_scanned, bg_img)
+        norm_img = cv2.normalize(diff_img, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8UC1)
+
+        enhanced = cv2.addWeighted(norm_img, 1.4, cv2.GaussianBlur(norm_img, (0, 0), 3), -0.4, 0)
+        return Image.fromarray(enhanced).convert('RGB')
     except Exception:
-        return pil_img
+        # Fallback Enhancement using PIL
+        enhancer = ImageEnhance.Contrast(pil_img)
+        high_contrast = enhancer.enhance(2.0)
+        brightened = ImageEnhance.Brightness(high_contrast).enhance(1.2)
+        return brightened.filter(ImageFilter.SHARPEN)
 
 # --- Fast Auto-Switching Dynamic AI Agent ---
 def analyze_bill_image(image):
@@ -252,7 +308,7 @@ st.markdown("""
 
 tab1, tab2 = st.tabs(["📝 New Bill Entry", "🔍 Smart Search & Dashboard"])
 
-# --- TAB 1: UPLOAD (Both Main & Supporting Have Gallery & Camera + Auto CamScanner) ---
+# --- TAB 1: UPLOAD (Main & Supporting with Auto Crop + Magic Scan) ---
 with tab1:
     c_req, c_ref = st.columns(2)
     with c_req:
@@ -288,10 +344,10 @@ with tab1:
     
     if main_file:
         raw_main_img = Image.open(main_file)
-        # Apply Automatic CamScanner Effect
-        main_image = apply_camscanner_effect(raw_main_img)
+        # Apply Auto-Crop & Magic CamScanner Enhancement
+        main_image = apply_camscanner_magic_filter(raw_main_img)
         
-        st.image(main_image, caption="📸 মূল সামারি বিল (Auto CamScanner Enhanced)", width=320)
+        st.image(main_image, caption="📸 মূল সামারি বিল (Auto Cropped & Magic Scanner Clear)", width=340)
         
         if st.button("🤖 AI দিয়ে তথ্য বের করুন"):
             with st.spinner("AI হাতের লেখা স্ক্যান করছে..."):
@@ -326,20 +382,19 @@ with tab1:
                     main_img_path = os.path.join(date_folder_path, f"main_{timestamp}.jpg")
                     main_image.save(main_img_path)
                     
-                    # Saving Supporting Files (Gallery or Camera with CamScanner Enhancement)
                     supp_paths = []
                     if supp_source == "📁 গ্যালারি / ফাইল (Upload)":
                         if supp_files:
                             for idx, s_file in enumerate(supp_files):
                                 raw_s = Image.open(s_file)
-                                s_img = apply_camscanner_effect(raw_s)
+                                s_img = apply_camscanner_magic_filter(raw_s)
                                 s_path = os.path.join(date_folder_path, f"supp_{timestamp}_{idx}.jpg")
                                 s_img.save(s_path)
                                 supp_paths.append(s_path)
                     else:
                         if supp_cam_file:
                             raw_s = Image.open(supp_cam_file)
-                            s_img = apply_camscanner_effect(raw_s)
+                            s_img = apply_camscanner_magic_filter(raw_s)
                             s_path = os.path.join(date_folder_path, f"supp_{timestamp}_cam.jpg")
                             s_img.save(s_path)
                             supp_paths.append(s_path)
