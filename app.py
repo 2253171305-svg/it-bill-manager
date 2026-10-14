@@ -23,12 +23,13 @@ import zipfile
 from datetime import datetime
 import difflib
 
-# --- Gemini API Key Configuration ---
-GEMINI_API_KEY = "AQ.Ab8RN6L2IcRS1tYxqyHQ_4bEwUPU-DiCJZbCSDeqdkbRsAGlIQ" 
+# --- Gemini API Key Configuration (Securely Fetched from Streamlit Secrets) ---
+GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
+
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
-# --- Auto-Discovery AI Agent ---
+# --- Fixed Auto-Discovery AI Agent ---
 def analyze_bill_image(image):
     prompt = """
     Analyze this handwritten receipt/summary bill image. The text might be in Bengali or English. Extract:
@@ -40,7 +41,7 @@ def analyze_bill_image(image):
     {"date": "DD/MM/YYYY", "items": "item1, item2", "total_amount": 0.0}
     """
     
-    models_to_try = ['gemini-3.8-flash', 'models/gemini-3.8-flash']
+    models_to_try = ['gemini-1.5-flash', 'gemini-2.0-flash', 'models/gemini-1.5-flash']
     last_error = None
     
     try:
@@ -82,7 +83,7 @@ def is_fuzzy_match(query, text, threshold=0.50):
             return True
     return False
 
-# --- Zip Creator for Single Voucher (Main + Supporting) ---
+# --- Zip Creator for Single Voucher ---
 def create_single_voucher_zip(main_path, supp_paths_str, v_date):
     zip_buffer = io.BytesIO()
     has_file = False
@@ -106,7 +107,7 @@ def create_single_voucher_zip(main_path, supp_paths_str, v_date):
     zip_buffer.seek(0)
     return zip_buffer if has_file else None
 
-# --- Zip Creator for Date Range / Bulk Export ---
+# --- Zip Creator for Bulk Date Range Export ---
 def create_bulk_date_range_zip(df_subset):
     zip_buffer = io.BytesIO()
     has_file = False
@@ -162,29 +163,18 @@ conn.commit()
 # --- Page Config ---
 st.set_page_config(page_title="All Purchase By Rianul Karim Roudro", layout="wide")
 
-# --- CSS Variables & Text Visibility Fix ---
+# --- Corporate Light Styling ---
 st.markdown("""
     <style>
-    /* Force Light Mode Color Palette at Root Level */
     :root, [data-testid="stAppViewContainer"], .stApp {
         --text-color: #111111 !important;
         --background-color: #FFFFFF !important;
         --secondary-background-color: #F8F9FA !important;
         background-color: #FFFFFF !important;
     }
+    .block-container { padding-top: 1.5rem !important; padding-bottom: 1.5rem !important; max-width: 1250px !important; }
+    h1, h2, h3, h4, h5, h6, p, span, label, div, small, td, th { color: #111111 !important; }
     
-    .block-container {
-        padding-top: 1.5rem !important;
-        padding-bottom: 1.5rem !important;
-        max-width: 1250px !important;
-    }
-    
-    /* Global Text Colors */
-    h1, h2, h3, h4, h5, h6, p, span, label, div, small, td, th { 
-        color: #111111 !important; 
-    }
-    
-    /* Header Container */
     .header-container { 
         background-color: #FFFFFF; 
         padding: 20px 25px; 
@@ -198,93 +188,27 @@ st.markdown("""
     .header-title { font-size: 28px; font-weight: 900; margin: 0; color: #111111 !important; letter-spacing: 0.5px; text-transform: uppercase; }
     .header-subtitle { color: #666666 !important; margin-top: 4px; font-size: 15px; font-weight: 500;}
     
-    /* File Uploader Light Styling */
-    div[data-testid="stFileUploader"] section {
-        background-color: #FFFFFF !important;
-        border: 2px dashed #D0D0D0 !important;
-        border-radius: 8px !important;
-        padding: 12px !important;
-    }
+    div[data-testid="stFileUploader"] section { background-color: #FFFFFF !important; border: 2px dashed #D0D0D0 !important; border-radius: 8px !important; padding: 12px !important; }
+    div[data-testid="stFileUploadDropzone"] button { background-color: #F1F3F5 !important; color: #111111 !important; border: 1px solid #CCCCCC !important; border-radius: 6px !important; padding: 6px 16px !important; font-weight: bold !important; }
+    div[data-testid="stDataFrame"] { background-color: #FFFFFF !important; border: 1px solid #E0E0E0 !important; border-radius: 8px !important; }
     
-    div[data-testid="stFileUploadDropzone"] button {
-        background-color: #F1F3F5 !important;
-        color: #111111 !important;
-        border: 1px solid #CCCCCC !important;
-        border-radius: 6px !important;
-        padding: 6px 16px !important;
-        font-weight: bold !important;
-    }
-    
-    /* Dataframe Container Border & Background */
-    div[data-testid="stDataFrame"] {
-        background-color: #FFFFFF !important;
-        border: 1px solid #E0E0E0 !important;
-        border-radius: 8px !important;
-    }
-    
-    /* Selectbox & Input Box Colors */
-    div[data-baseweb="select"],
-    div[data-baseweb="select"] *,
-    div[data-baseweb="popover"],
-    div[data-baseweb="popover"] *,
-    ul[role="listbox"],
-    li[role="option"] {
-        background-color: #FFFFFF !important;
-        color: #111111 !important;
-    }
-    
-    li[role="option"]:hover {
-        background-color: #FFF5F5 !important;
-        color: #CC0000 !important;
-    }
+    div[data-baseweb="select"], div[data-baseweb="select"] *, div[data-baseweb="popover"], div[data-baseweb="popover"] *, ul[role="listbox"], li[role="option"] { background-color: #FFFFFF !important; color: #111111 !important; }
+    li[role="option"]:hover { background-color: #FFF5F5 !important; color: #CC0000 !important; }
 
-    .stTextInput>div>div>input, .stNumberInput>div>div>input, .stTextArea>div>textarea { 
-        border-radius: 6px !important; 
-        border: 1px solid #D0D0D0 !important; 
-        background-color: #FFFFFF !important;
-        color: #111111 !important;
-    }
-
-    /* Action Buttons */
-    .stButton>button { 
-        background-color: #CC0000 !important; 
-        color: #FFFFFF !important; 
-        font-weight: bold !important; 
-        border-radius: 6px !important; 
-        border: none !important; 
-        padding: 10px 20px !important; 
-        transition: 0.3s; 
-    }
-    .stButton>button:hover { 
-        background-color: #A30000 !important; 
-        color: #FFFFFF !important; 
-        box-shadow: 0px 4px 12px rgba(204,0,0,0.25) !important;
-    }
+    .stTextInput>div>div>input, .stNumberInput>div>div>input, .stTextArea>div>textarea { border-radius: 6px !important; border: 1px solid #D0D0D0 !important; background-color: #FFFFFF !important; color: #111111 !important; }
+    .stButton>button { background-color: #CC0000 !important; color: #FFFFFF !important; font-weight: bold !important; border-radius: 6px !important; border: none !important; padding: 10px 20px !important; transition: 0.3s; }
+    .stButton>button:hover { background-color: #A30000 !important; color: #FFFFFF !important; box-shadow: 0px 4px 12px rgba(204,0,0,0.25) !important; }
     
-    .stDownloadButton>button { 
-        background-color: #0D6EFD !important; 
-        color: #FFFFFF !important; 
-        font-weight: bold !important; 
-        border-radius: 6px !important; 
-        border: none !important; 
-        padding: 10px 20px !important; 
-        transition: 0.3s;
-        width: 100% !important;
-    }
-    .stDownloadButton>button:hover { 
-        background-color: #0B5ED7 !important; 
-        color: #FFFFFF !important;
-        box-shadow: 0px 4px 12px rgba(13,110,253,0.25) !important;
-    }
+    .stDownloadButton>button { background-color: #0D6EFD !important; color: #FFFFFF !important; font-weight: bold !important; border-radius: 6px !important; border: none !important; padding: 10px 20px !important; transition: 0.3s; width: 100% !important; }
+    .stDownloadButton>button:hover { background-color: #0B5ED7 !important; color: #FFFFFF !important; box-shadow: 0px 4px 12px rgba(13,110,253,0.25) !important; }
 
-    /* Tabs Styling */
     .stTabs [data-baseweb="tab-list"] { gap: 15px; }
     .stTabs [data-baseweb="tab"] { height: 45px; white-space: pre-wrap; background-color: transparent !important; border-radius: 4px 4px 0 0; color: #444444 !important; font-weight: bold; font-size: 16px;}
     .stTabs [aria-selected="true"] { color: #CC0000 !important; border-bottom: 3px solid #CC0000 !important; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- Header Section ---
+# --- Header ---
 st.markdown("""
     <div class="header-container">
         <div class="header-title">ABDULLAH POULTRY FEED MILL</div>
@@ -294,7 +218,7 @@ st.markdown("""
 
 tab1, tab2 = st.tabs(["📝 New Bill Entry", "🔍 Smart Search & Dashboard"])
 
-# --- TAB 1: UPLOAD (Main + Supporting) ---
+# --- TAB 1: UPLOAD (With Camera + Upload Toggle) ---
 with tab1:
     c_req, c_ref = st.columns(2)
     with c_req:
@@ -307,17 +231,23 @@ with tab1:
     
     with col_upload1:
         st.info("📄 **মূল সামারি বিল:** যেটি AI রিড করবে।")
-        main_file = st.file_uploader("মূল বিল আপলোড করুন", type=['jpg', 'jpeg', 'png'])
+        main_source = st.radio("মূল বিল দেওয়ার মাধ্যম বেছে নিন:", ["📁 গ্যালারি / ফাইল (Upload)", "📸 সরাসরি ক্যামেরা (Camera)"], horizontal=True, key="main_src")
+        
+        main_file = None
+        if main_source == "📁 গ্যালারি / ফাইল (Upload)":
+            main_file = st.file_uploader("মূল বিল আপলোড করুন", type=['jpg', 'jpeg', 'png'], key="main_upload")
+        else:
+            main_file = st.camera_input("সরাসরি বিলের ছবি তুলুন", key="main_cam")
         
     with col_upload2:
         st.info("📎 **সাপোর্টিং বিলসমূহ:** প্রমাণ হিসেবে যুক্ত থাকবে।")
-        supp_files = st.file_uploader("অন্যান্য বিল আপলোড করুন (একাধিক)", type=['jpg', 'jpeg', 'png'], accept_multiple_files=True)
+        supp_files = st.file_uploader("অন্যান্য বিল আপলোড করুন (একাধিক)", type=['jpg', 'jpeg', 'png'], accept_multiple_files=True, key="supp_upload")
     
     if main_file:
         main_image = Image.open(main_file)
         st.image(main_image, caption="মূল সামারি বিল", width=300)
         
-        if st.button("🤖 AI দিয়ে তথ্য বের করুন"):
+        if st.button("🤖 AI দিয়ে তথ্য বের করুন"):
             with st.spinner("AI হাতের লেখা স্ক্যান করছে..."):
                 try:
                     result = analyze_bill_image(main_image)
@@ -326,7 +256,6 @@ with tab1:
                 except Exception as e:
                     st.error(f"AI ডেটা প্রসেস করতে পারেনি। Error: {e}")
 
-        # Review & Save Form
         if 'ai_result' in st.session_state:
             result = st.session_state['ai_result']
             with st.form("save_form"):
@@ -371,7 +300,7 @@ with tab1:
                     st.balloons()
                     st.success(f"🎉 ডেটা সেভ হয়েছে! ছবিগুলো 'bills_images/{safe_date}' ফোল্ডারে সংরক্ষিত হয়েছে।")
 
-# --- TAB 2: SMART SEARCH & DASHBOARD ---
+# --- TAB 2: DASHBOARD & SEARCH ---
 with tab2:
     query = """
     SELECT id, date AS 'তারিখ', items AS 'পণ্যসমূহ', 
@@ -382,7 +311,6 @@ with tab2:
     df = pd.read_sql_query(query, conn)
     
     if not df.empty:
-        # --- Top Filter & Search Bar ---
         col_s1, col_s2 = st.columns([2, 1])
         with col_s1:
             search_term = st.text_input("🔎 তারিখ বা পণ্যের নাম লিখে সার্চ করুন (Live Auto-Search):", placeholder="উদা: 11/10/2026, গুরু মাংস, রাউটার...")
@@ -390,7 +318,6 @@ with tab2:
             unique_dates = ["সব তারিখ (All Dates)"] + sorted(list(df['তারিখ'].unique()), reverse=True)
             selected_date_filter = st.selectbox("📅 নির্দিষ্ট তারিখের ফিল্টার:", unique_dates)
 
-        # Filter Logic
         filtered_df = df.copy()
         if selected_date_filter != "সব তারিখ (All Dates)":
             filtered_df = filtered_df[filtered_df['তারিখ'] == selected_date_filter]
@@ -400,7 +327,6 @@ with tab2:
         display_df = filtered_df.drop(columns=['image_path', 'supporting_images'])
         st.dataframe(display_df, use_container_width=True, height=220)
         
-        # --- Middle Section: Date-Range Bulk Export ---
         st.markdown("<h4 style='margin-top:15px; color:#111;'>📦 তারিখ অনুযায়ী একসাথে একাধিক ভাউচার ডাউনলোড (Range Export)</h4>", unsafe_allow_html=True)
         col_r1, col_r2, col_r3 = st.columns([1.5, 1.5, 1.5])
         with col_r1:
@@ -427,7 +353,6 @@ with tab2:
         st.markdown("<hr style='margin:15px 0; border:1px solid #EAEAEA;'>", unsafe_allow_html=True)
         st.markdown("### 📷 তারিখ ও পণ্য অনুযায়ী ভাউচার দেখুন ও ম্যানেজ করুন")
         
-        # --- Voucher Viewer by Date + Item Preview ---
         voucher_options = {}
         for idx, row in filtered_df.iterrows():
             label_text = f"📅 {row['তারিখ']} | {str(row['পণ্যসমূহ'])[:40]}... (মোট: ৳{row['মোট বিল']})"
@@ -445,7 +370,6 @@ with tab2:
             s_paths_str = selected_row['supporting_images']
             v_date = selected_row['তারিখ']
             
-            # Single Voucher ZIP Download
             with col_down:
                 st.write("&nbsp;")
                 st.write("&nbsp;")
@@ -461,7 +385,6 @@ with tab2:
                 else:
                     st.button("📥 Download", disabled=True, key=f"dis_dl_{selected_id}")
 
-            # Delete Button
             with col_del:
                 st.write("&nbsp;")
                 st.write("&nbsp;")
@@ -480,7 +403,6 @@ with tab2:
                     st.success(f"ভাউচারটি সফলভাবে মুছে ফেলা হয়েছে!")
                     st.rerun()
             
-            # Images Display
             col_img1, col_img2 = st.columns([1, 2])
             with col_img1:
                 if os.path.exists(m_path):
