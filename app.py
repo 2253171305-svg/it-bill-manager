@@ -15,7 +15,8 @@ textColor="#111111"
 import streamlit as st
 import sqlite3
 import pandas as pd
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter
+import numpy as np
 import google.generativeai as genai
 import json
 import io
@@ -23,13 +24,29 @@ import zipfile
 from datetime import datetime
 import difflib
 
-# --- Gemini API Key Configuration (Securely Fetched from Streamlit Secrets) ---
+# --- Gemini API Key Configuration ---
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
-# --- 100% Auto-Switching Dynamic AI Agent ---
+# --- Auto CamScanner Filter (Magic Color Scan Effect) ---
+def apply_camscanner_effect(pil_img):
+    try:
+        # High contrast and document whitening
+        enhancer_contrast = ImageEnhance.Contrast(pil_img)
+        high_contrast = enhancer_contrast.enhance(1.8)
+        
+        enhancer_brightness = ImageEnhance.Brightness(high_contrast)
+        brightened = enhancer_brightness.enhance(1.15)
+        
+        # Edge sharpening
+        sharpened = brightened.filter(ImageFilter.SHARPEN)
+        return sharpened
+    except Exception:
+        return pil_img
+
+# --- Fast Auto-Switching Dynamic AI Agent ---
 def analyze_bill_image(image):
     prompt = """
     Analyze this handwritten receipt/summary bill image. The text might be in Bengali or English. Extract:
@@ -41,7 +58,6 @@ def analyze_bill_image(image):
     {"date": "DD/MM/YYYY", "items": "item1, item2", "total_amount": 0.0}
     """
     
-    # ১. প্রাইমারি মডেলের ক্যাডিডেট লিস্ট (Fallback Priorities)
     candidate_models = [
         'gemini-1.5-flash',
         'gemini-2.0-flash',
@@ -50,7 +66,6 @@ def analyze_bill_image(image):
         'models/gemini-2.0-flash'
     ]
     
-    # ২. গুগল API থেকে ডায়নামিকভাবে চালু থাকা সব মডেলের আপডেট লিস্ট নেওয়া
     try:
         available_from_api = []
         for m in genai.list_models():
@@ -58,13 +73,11 @@ def analyze_bill_image(image):
                 name = m.name.replace('models/', '')
                 available_from_api.append(name)
                 available_from_api.append(m.name)
-        
         if available_from_api:
             candidate_models = available_from_api + candidate_models
     except Exception:
         pass
 
-    # ইউনিক মডেল ফিল্টার করা
     seen = set()
     models_to_try = []
     for m in candidate_models:
@@ -72,7 +85,6 @@ def analyze_bill_image(image):
             seen.add(m)
             models_to_try.append(m)
 
-    # ৩. অটো-সুইচিং লুপ (একটি ফেইল করলে নিশব্দে অটোমেটিক পরের মডেলে চলে যাবে)
     last_error = None
     for model_name in models_to_try:
         try:
@@ -240,7 +252,7 @@ st.markdown("""
 
 tab1, tab2 = st.tabs(["📝 New Bill Entry", "🔍 Smart Search & Dashboard"])
 
-# --- TAB 1: UPLOAD (Both Main & Supporting Have Gallery & Camera) ---
+# --- TAB 1: UPLOAD (Both Main & Supporting Have Gallery & Camera + Auto CamScanner) ---
 with tab1:
     c_req, c_ref = st.columns(2)
     with c_req:
@@ -275,8 +287,11 @@ with tab1:
             supp_cam_file = st.camera_input("সরাসরি সাপোর্টিং বিলের ছবি তুলুন", key="supp_cam")
     
     if main_file:
-        main_image = Image.open(main_file)
-        st.image(main_image, caption="মূল সামারি বিল", width=300)
+        raw_main_img = Image.open(main_file)
+        # Apply Automatic CamScanner Effect
+        main_image = apply_camscanner_effect(raw_main_img)
+        
+        st.image(main_image, caption="📸 মূল সামারি বিল (Auto CamScanner Enhanced)", width=320)
         
         if st.button("🤖 AI দিয়ে তথ্য বের করুন"):
             with st.spinner("AI হাতের লেখা স্ক্যান করছে..."):
@@ -311,18 +326,20 @@ with tab1:
                     main_img_path = os.path.join(date_folder_path, f"main_{timestamp}.jpg")
                     main_image.save(main_img_path)
                     
-                    # Saving Supporting Files (Gallery or Camera)
+                    # Saving Supporting Files (Gallery or Camera with CamScanner Enhancement)
                     supp_paths = []
                     if supp_source == "📁 গ্যালারি / ফাইল (Upload)":
                         if supp_files:
                             for idx, s_file in enumerate(supp_files):
-                                s_img = Image.open(s_file)
+                                raw_s = Image.open(s_file)
+                                s_img = apply_camscanner_effect(raw_s)
                                 s_path = os.path.join(date_folder_path, f"supp_{timestamp}_{idx}.jpg")
                                 s_img.save(s_path)
                                 supp_paths.append(s_path)
                     else:
                         if supp_cam_file:
-                            s_img = Image.open(supp_cam_file)
+                            raw_s = Image.open(supp_cam_file)
+                            s_img = apply_camscanner_effect(raw_s)
                             s_path = os.path.join(date_folder_path, f"supp_{timestamp}_cam.jpg")
                             s_img.save(s_path)
                             supp_paths.append(s_path)
