@@ -15,7 +15,7 @@ textColor="#111111"
 import streamlit as st
 import sqlite3
 import pandas as pd
-from PIL import Image
+from PIL import Image, ImageEnhance
 import google.generativeai as genai
 import json
 import io
@@ -29,7 +29,16 @@ GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
-# --- Dynamic & Safe Auto-Switching AI Agent (No 404 Error) ---
+# --- Image Quality Preserver ---
+def enhance_image_clarity(pil_img):
+    try:
+        enhancer = ImageEnhance.Contrast(pil_img)
+        enhanced = enhancer.enhance(1.1)
+        return enhanced
+    except Exception:
+        return pil_img
+
+# --- Fast & Safe Auto-Switching AI Agent ---
 def analyze_bill_image(image):
     prompt = """
     Analyze this handwritten receipt/summary bill image. The text might be in Bengali or English. Extract:
@@ -47,24 +56,9 @@ def analyze_bill_image(image):
         'gemini-2.0-flash',
         'models/gemini-2.0-flash'
     ]
-    
-    try:
-        api_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        if api_models:
-            flash_first = [m for m in api_models if 'flash' in m.lower()]
-            models_to_try = flash_first + api_models + models_to_try
-    except Exception:
-        pass
-
-    seen = set()
-    final_models = []
-    for m in models_to_try:
-        if m not in seen:
-            seen.add(m)
-            final_models.append(m)
 
     last_error = None
-    for model_name in final_models:
+    for model_name in models_to_try:
         try:
             model = genai.GenerativeModel(model_name)
             response = model.generate_content([prompt, image])
@@ -265,7 +259,8 @@ with tab1:
             supp_cam_file = st.camera_input("সরাসরি সাপোর্টিং বিলের ছবি তুলুন", key="supp_cam")
     
     if main_file:
-        main_image = Image.open(main_file)
+        raw_main_img = Image.open(main_file)
+        main_image = enhance_image_clarity(raw_main_img)
         st.image(main_image, caption="📄 মূল সামারি বিল", width=350)
         
         if st.button("🤖 AI দিয়ে তথ্য বের করুন"):
@@ -305,13 +300,15 @@ with tab1:
                     if supp_source == "📁 গ্যালারি / ফাইল (Upload)":
                         if supp_files:
                             for idx, s_file in enumerate(supp_files):
-                                s_img = Image.open(s_file)
+                                raw_s = Image.open(s_file)
+                                s_img = enhance_image_clarity(raw_s)
                                 s_path = os.path.join(date_folder_path, f"supp_{timestamp}_{idx}.jpg")
                                 s_img.save(s_path)
                                 supp_paths.append(s_path)
                     else:
                         if supp_cam_file:
-                            s_img = Image.open(supp_cam_file)
+                            raw_s = Image.open(supp_cam_file)
+                            s_img = enhance_image_clarity(raw_s)
                             s_path = os.path.join(date_folder_path, f"supp_{timestamp}_cam.jpg")
                             s_img.save(s_path)
                             supp_paths.append(s_path)
@@ -435,4 +432,20 @@ with tab2:
             with col_img1:
                 if os.path.exists(m_path):
                     st.image(m_path, caption=f"📄 মূল সামারি বিল ({v_date})", width=380)
-                else
+                else:
+                    st.warning("মূল ছবিটি পিসিতে খুঁজে পাওয়া যায়নি।")
+                    
+            with col_img2:
+                if pd.notna(s_paths_str) and s_paths_str.strip() != "":
+                    st.write("#### 📎 সাপোর্টিং বিলসমূহ:")
+                    s_paths = s_paths_str.split(",")
+                    cols = st.columns(3)
+                    col_idx = 0
+                    for sp in s_paths:
+                        if os.path.exists(sp):
+                            cols[col_idx % 3].image(sp, caption="Supporting Bill", use_container_width=True)
+                            col_idx += 1
+        else:
+            st.info("আপনার সার্চ অনুযায়ী কোনো রেকর্ড পাওয়া যায়নি।")
+    else:
+        st.info("কোনো ডেটা পাওয়া যায়নি। 'New Bill Entry' থেকে ডেটা যোগ করুন।")
