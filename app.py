@@ -15,8 +15,7 @@ textColor="#111111"
 import streamlit as st
 import sqlite3
 import pandas as pd
-from PIL import Image, ImageEnhance, ImageFilter
-import numpy as np
+from PIL import Image
 import google.generativeai as genai
 import json
 import io
@@ -30,18 +29,7 @@ GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
-# --- Clean Image Quality Preserver (No Distortion, High Clarity) ---
-def enhance_image_clarity(pil_img):
-    try:
-        # Subtle contrast and sharpness enhancement without ruining aspect ratio
-        enhancer = ImageEnhance.Contrast(pil_img)
-        enhanced = enhancer.enhance(1.15)
-        sharp = ImageEnhance.Sharpness(enhanced).enhance(1.2)
-        return sharp
-    except Exception:
-        return pil_img
-
-# --- Fast Auto-Switching Dynamic AI Agent ---
+# --- Ultra-Fast Auto-Switching AI Agent (No Latency) ---
 def analyze_bill_image(image):
     prompt = """
     Analyze this handwritten receipt/summary bill image. The text might be in Bengali or English. Extract:
@@ -53,32 +41,12 @@ def analyze_bill_image(image):
     {"date": "DD/MM/YYYY", "items": "item1, item2", "total_amount": 0.0}
     """
     
-    candidate_models = [
+    # Fast Models Direct Fallback Priorities
+    models_to_try = [
         'gemini-1.5-flash',
         'gemini-2.0-flash',
-        'gemini-1.5-pro',
-        'models/gemini-1.5-flash',
-        'models/gemini-2.0-flash'
+        'gemini-1.5-pro'
     ]
-    
-    try:
-        available_from_api = []
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                name = m.name.replace('models/', '')
-                available_from_api.append(name)
-                available_from_api.append(m.name)
-        if available_from_api:
-            candidate_models = available_from_api + candidate_models
-    except Exception:
-        pass
-
-    seen = set()
-    models_to_try = []
-    for m in candidate_models:
-        if m not in seen:
-            seen.add(m)
-            models_to_try.append(m)
 
     last_error = None
     for model_name in models_to_try:
@@ -97,7 +65,7 @@ def analyze_bill_image(image):
             last_error = e
             continue
             
-    raise Exception(f"Google AI Auto-Switch Error: {last_error}")
+    raise Exception(f"Google AI Error: {last_error}")
 
 # --- Smart Search Function (Fuzzy Matching) ---
 def is_fuzzy_match(query, text, threshold=0.50):
@@ -247,7 +215,7 @@ st.markdown("""
 
 tab1, tab2 = st.tabs(["📝 New Bill Entry", "🔍 Smart Search & Dashboard"])
 
-# --- TAB 1: UPLOAD (Clean Original Image Preservation) ---
+# --- TAB 1: UPLOAD ---
 with tab1:
     c_req, c_ref = st.columns(2)
     with c_req:
@@ -282,10 +250,8 @@ with tab1:
             supp_cam_file = st.camera_input("সরাসরি সাপোর্টিং বিলের ছবি তুলুন", key="supp_cam")
     
     if main_file:
-        raw_main_img = Image.open(main_file)
-        main_image = enhance_image_clarity(raw_main_img)
-        
-        st.image(main_image, caption="📄 মূল সামারি বিল (High Resolution)", width=350)
+        main_image = Image.open(main_file)
+        st.image(main_image, caption="📄 মূল সামারি বিল", width=350)
         
         if st.button("🤖 AI দিয়ে তথ্য বের করুন"):
             with st.spinner("AI হাতের লেখা স্ক্যান করছে..."):
@@ -324,15 +290,13 @@ with tab1:
                     if supp_source == "📁 গ্যালারি / ফাইল (Upload)":
                         if supp_files:
                             for idx, s_file in enumerate(supp_files):
-                                raw_s = Image.open(s_file)
-                                s_img = enhance_image_clarity(raw_s)
+                                s_img = Image.open(s_file)
                                 s_path = os.path.join(date_folder_path, f"supp_{timestamp}_{idx}.jpg")
                                 s_img.save(s_path)
                                 supp_paths.append(s_path)
                     else:
                         if supp_cam_file:
-                            raw_s = Image.open(supp_cam_file)
-                            s_img = enhance_image_clarity(raw_s)
+                            s_img = Image.open(supp_cam_file)
                             s_path = os.path.join(date_folder_path, f"supp_{timestamp}_cam.jpg")
                             s_img.save(s_path)
                             supp_paths.append(s_path)
