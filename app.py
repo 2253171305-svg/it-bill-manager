@@ -29,7 +29,7 @@ GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
-# --- Ultra-Fast Auto-Switching AI Agent (No Latency) ---
+# --- Dynamic & Safe Auto-Switching AI Agent (No 404 Error) ---
 def analyze_bill_image(image):
     prompt = """
     Analyze this handwritten receipt/summary bill image. The text might be in Bengali or English. Extract:
@@ -41,15 +41,30 @@ def analyze_bill_image(image):
     {"date": "DD/MM/YYYY", "items": "item1, item2", "total_amount": 0.0}
     """
     
-    # Fast Models Direct Fallback Priorities
     models_to_try = [
         'gemini-1.5-flash',
+        'models/gemini-1.5-flash',
         'gemini-2.0-flash',
-        'gemini-1.5-pro'
+        'models/gemini-2.0-flash'
     ]
+    
+    try:
+        api_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        if api_models:
+            flash_first = [m for m in api_models if 'flash' in m.lower()]
+            models_to_try = flash_first + api_models + models_to_try
+    except Exception:
+        pass
+
+    seen = set()
+    final_models = []
+    for m in models_to_try:
+        if m not in seen:
+            seen.add(m)
+            final_models.append(m)
 
     last_error = None
-    for model_name in models_to_try:
+    for model_name in final_models:
         try:
             model = genai.GenerativeModel(model_name)
             response = model.generate_content([prompt, image])
@@ -420,20 +435,4 @@ with tab2:
             with col_img1:
                 if os.path.exists(m_path):
                     st.image(m_path, caption=f"📄 মূল সামারি বিল ({v_date})", width=380)
-                else:
-                    st.warning("মূল ছবিটি পিসিতে খুঁজে পাওয়া যায়নি।")
-                    
-            with col_img2:
-                if pd.notna(s_paths_str) and s_paths_str.strip() != "":
-                    st.write("#### 📎 সাপোর্টিং বিলসমূহ:")
-                    s_paths = s_paths_str.split(",")
-                    cols = st.columns(3)
-                    col_idx = 0
-                    for sp in s_paths:
-                        if os.path.exists(sp):
-                            cols[col_idx % 3].image(sp, caption="Supporting Bill", use_container_width=True)
-                            col_idx += 1
-        else:
-            st.info("আপনার সার্চ অনুযায়ী কোনো রেকর্ড পাওয়া যায়নি।")
-    else:
-        st.info("কোনো ডেটা পাওয়া যায়নি। 'New Bill Entry' থেকে ডেটা যোগ করুন।")
+                else
